@@ -5,7 +5,7 @@
 
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import plugin, { docIdFor, markdownFor, sidebarFrom } from '../index.js'
+import plugin, { docIdFor, markdownFor, sidebarFrom, trafficScriptTag } from '../index.js'
 
 /**
  * A fetch that records every URL and answers from a fixture.
@@ -114,6 +114,44 @@ test('a grid page contributes its markdown blocks in order', () => {
 	})
 
 	assert.equal(md, 'first\n\nsecond')
+})
+
+test('the traffic script is loaded FROM THE PORTAL, not bundled here', () => {
+	const tag = trafficScriptTag({
+		baseUrl: 'https://portal.example/',
+		appPath: '/index.php/apps/portaliq',
+		portal: 'demo',
+	})
+
+	assert.equal(tag.tagName, 'script')
+	// THE ROUTE, NOT THE FILE PATH. `<app>/js/portaliq-traffic.js` answers 401
+	// to an anonymous caller — measured, 43 bytes of JSON — and the path that
+	// does serve it varies by deployment. A built site bakes this URL in and
+	// cannot be corrected later, so it has to be the stable one.
+	assert.equal(
+		tag.attributes.src,
+		'https://portal.example/index.php/apps/portaliq/api/traffic-client.js',
+	)
+	assert.doesNotMatch(tag.attributes.src, /\/js\//, 'the tag points at a deployment-dependent file path')
+
+	// THE SOURCE IS THE ASSERTION. Vendoring a copy of the client into this
+	// package would let a statically built portal and a server-rendered one
+	// reach different conclusions about what a visitor's browser may store,
+	// and the copy that drifted would be the one nobody is watching.
+	assert.match(tag.attributes.src, /^https:\/\/portal\.example\//)
+	assert.equal(tag.attributes['data-portal'], 'demo')
+	assert.equal(tag.attributes.defer, true)
+})
+
+test('a site can decline measurement outright', () => {
+	const on = plugin({}, { baseUrl: 'https://portal.example', portal: 'demo' })
+	const off = plugin({}, { baseUrl: 'https://portal.example', portal: 'demo', traffic: false })
+
+	assert.equal(on.injectHtmlTags().headTags.length, 1)
+
+	// Not a hint, an off switch: no tag means nothing is fetched and nothing
+	// runs, rather than a script that loads and then decides to be quiet.
+	assert.deepEqual(off.injectHtmlTags(), {})
 })
 
 test('the build reports its API gaps rather than working around them', async () => {

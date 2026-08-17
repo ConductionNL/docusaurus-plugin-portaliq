@@ -55,6 +55,30 @@ export default {
 | `token` | Optional bearer. Never written to output or to a build log — including on a failed request, which is the path that serialises context. |
 | `expected` | Minimum counts per resource. A shortfall fails the build **stating both numbers**. |
 | `snapshot` | `{enabled, content}`. Only used when `enabled` is `true`, and it announces itself when it is. |
+| `traffic` | Load the portal's traffic client. Defaults to `true`; `false` emits no tag at all. |
+
+## Measurement
+
+The built site loads the portal's **own** traffic client — a `<script>` pointing
+at `{baseUrl}{appPath}/api/traffic-client.js` — rather than a copy vendored into
+this package. That is deliberate: a statically built portal and a
+server-rendered one must not be able to reach different conclusions about what a
+visitor's browser may store, and the copy that drifted would be the one nobody
+is watching.
+
+**Two switches, both of which must be on.** `traffic: false` here emits no tag,
+so nothing is fetched and nothing runs. Left on, the script still measures
+nothing unless the portal itself has enabled it — the site's operator and the
+portal's operator can be different people, and either may decline.
+
+The script fetches the portal's settings **at runtime**, never at build time.
+Baking them in is the shape that keeps measuring after an operator switches
+measurement off; a privacy decision that needs a site rebuild to take effect is
+a privacy decision that does not work.
+
+Two things it will not do: it honours Do Not Track and Global Privacy Control
+before anything else, and it writes nothing to browser storage until consent is
+given where the portal requires it.
 
 ## What a build does
 

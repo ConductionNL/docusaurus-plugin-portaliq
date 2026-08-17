@@ -110,6 +110,49 @@ export function markdownFor(page) {
 }
 
 /**
+ * The `<script>` tag that loads the portal's own traffic client.
+ *
+ * LOADED FROM THE PORTAL, NOT BUNDLED HERE. That is the point: the file this
+ * tag fetches is the same file the portal's built-in renderer runs, so a
+ * statically built site and a server-rendered one cannot come to different
+ * conclusions about what a visitor's browser may store. Vendoring a copy into
+ * this package would create exactly the divergence the shared source exists to
+ * prevent, and the copy that drifted would be the one nobody is watching.
+ *
+ * It carries no configuration of its own beyond WHERE to ask. The script
+ * fetches the portal's live traffic settings at runtime, so switching
+ * measurement off takes effect without rebuilding the site — a privacy
+ * decision that requires a rebuild is a privacy decision that does not work.
+ *
+ * @param {object} options         The plugin options.
+ * @param {string} options.baseUrl The portal origin.
+ * @param {string} options.appPath The app's route prefix.
+ * @param {string} options.portal  The portal slug.
+ * @return {object} A Docusaurus tag description.
+ */
+export function trafficScriptTag({ baseUrl, appPath, portal }) {
+	const origin = String(baseUrl || '').replace(/\/$/, '')
+	const path = String(appPath || '').replace(/\/$/, '')
+
+	// A ROUTE, NOT A FILE PATH. The obvious URL —
+	// `<app>/js/portaliq-traffic.js` — answers 401 to an anonymous caller,
+	// which is every caller a public portal has; the path that does serve it
+	// depends on where the instance keeps its apps. Measured, not assumed: the
+	// file path returned `401` with a 43-byte JSON body, and only
+	// `/custom_apps/…` returned the script.
+	return {
+		tagName: 'script',
+		attributes: {
+			src: `${origin}${path}/api/traffic-client.js`,
+			defer: true,
+			'data-origin': origin,
+			'data-portal': portal || '',
+			'data-appPath': path,
+		},
+	}
+}
+
+/**
  * The plugin.
  *
  * @param {object} context The Docusaurus context.
@@ -124,6 +167,7 @@ export default function pluginPortaliq(context, options = {}) {
 		token = '',
 		expected = {},
 		snapshot = null,
+		traffic = true,
 		fetchImpl,
 	} = options
 
@@ -198,6 +242,28 @@ export default function pluginPortaliq(context, options = {}) {
 			for (const gap of KNOWN_API_GAPS) {
 				// eslint-disable-next-line no-console
 				console.info(`[portaliq] API gap — ${gap.name}: ${gap.why}`)
+			}
+		},
+
+		/**
+		 * Load the portal's traffic client, when the site wants measuring.
+		 *
+		 * `traffic: false` in the plugin options declines it outright, and that
+		 * is a genuine off switch rather than a hint: the tag is never emitted,
+		 * so nothing is fetched and nothing runs. Left on, the script still
+		 * measures nothing unless the PORTAL has enabled it — two independent
+		 * switches, both of which must be on, because the site's operator and
+		 * the portal's operator can be different people.
+		 *
+		 * @return {object} The tags to inject.
+		 */
+		injectHtmlTags() {
+			if (traffic === false) {
+				return {}
+			}
+
+			return {
+				headTags: [trafficScriptTag({ baseUrl, appPath, portal })],
 			}
 		},
 	}
