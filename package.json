@@ -1,6 +1,6 @@
 {
   "name": "@conduction/docusaurus-plugin-portaliq",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Build a Docusaurus site from a Portaliq portal's public content API \u2014 and from nothing else.",
   "license": "EUPL-1.2",
   "type": "module",
