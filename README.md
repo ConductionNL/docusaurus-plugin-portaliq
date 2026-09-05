@@ -80,6 +80,32 @@ Two things it will not do: it honours Do Not Track and Global Privacy Control
 before anything else, and it writes nothing to browser storage until consent is
 given where the portal requires it.
 
+### What the client reports, and what it never does
+
+The client is the same file the portal's own renderer loads, so the list below
+is the portal's contract, documented at
+`portaliq/docs/operations/traffic-analytics.md`; this is the short form.
+
+- Page views (including in-page navigation), a session start, scrolling past
+  90 %, outbound links, file downloads, site searches, form starts, field
+  timings and abandons (field ids and durations only, never a value), missing
+  pages (`data-portaliq-status="404"` on the not-found element) and script
+  errors (message, file and line, never a stack or a query string).
+- Visitors are counted cookieless by default: a daily salted hash, nothing in
+  browser storage. A portal that switched on the persistent client id gets it
+  only after consent, and `window.portaliqTraffic.consent(true|false)` is how a
+  site's own banner reports that decision.
+- `window.portaliqTraffic.track(name, params)` sends a custom event and
+  `window.portaliqTraffic.dimension(id, value)` sets a custom dimension; the
+  portal declares which events and dimensions it accepts and refuses the rest.
+- A running experiment on a page assigns a variant per visitor and tags that
+  visitor's events with it.
+- Heatmaps (click positions as fractions, scroll depth) and session recording
+  (a masked event stream: every text node reduced to its length, every input to
+  its value length) exist only on a portal whose operator switched them on with
+  the warning that goes with them, and recording never runs on a portal of kind
+  `external`, because the site's DOM is not the portal's to record.
+
 ## What a build does
 
 - **menus → sidebar.** Two-level nesting becomes a Docusaurus category. Deeper
