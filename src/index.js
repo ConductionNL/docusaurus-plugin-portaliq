@@ -168,6 +168,7 @@ export default function pluginPortaliq(context, options = {}) {
 		expected = {},
 		snapshot = null,
 		traffic = true,
+		content = true,
 		fetchImpl,
 	} = options
 
@@ -185,6 +186,22 @@ export default function pluginPortaliq(context, options = {}) {
 		 * @return {Promise<object>} The loaded content.
 		 */
 		async loadContent() {
+			// A SITE THAT ONLY WANTS MEASURING MUST NOT DEPEND ON THE CONTENT
+			// API. `content: false` is for a site that writes its own pages and
+			// takes nothing from the portal but the traffic client. Without
+			// this branch such a site still fetches the whole content contract
+			// at build time and, because an unreachable API deliberately fails
+			// the build, a portal being down would stop a site publishing pages
+			// it does not even get from that portal.
+			//
+			// Returning the empty shape rather than skipping the hook keeps
+			// `contentLoaded` free of null checks: it renders no docs, an empty
+			// sidebar and no glossary, which is exactly right for a site that
+			// asked for none.
+			if (content === false) {
+				return { site: null, menus: [], pages: [], glossary: null }
+			}
+
 			const client = new ContentClient({ baseUrl, appPath, portal, token, fetchImpl })
 
 			try {
@@ -216,10 +233,21 @@ export default function pluginPortaliq(context, options = {}) {
 		 * @param {object} args.actions   Docusaurus actions.
 		 * @return {Promise<void>} Resolves when the data is written.
 		 */
-		async contentLoaded({ content, actions }) {
+		async contentLoaded({ content: loaded, actions }) {
 			const { createData, setGlobalData } = actions
 
-			const docs = (content.pages || []).map((page) => ({
+			// Renamed from `content` because the plugin option of that name is
+			// in scope here; the hook argument shadowed it, so reading the
+			// option inside this hook would silently read Docusaurus's payload.
+			if (content === false) {
+				await createData('portaliq-docs.json', JSON.stringify([], null, 2))
+				await createData('portaliq-glossary.json', JSON.stringify([], null, 2))
+				setGlobalData({ site: null, sidebar: [], apiGaps: [] })
+
+				return
+			}
+
+			const docs = (loaded.pages || []).map((page) => ({
 				id: docIdFor(page.route),
 				title: page.title || '',
 				markdown: markdownFor(page),
@@ -228,14 +256,14 @@ export default function pluginPortaliq(context, options = {}) {
 			await createData('portaliq-docs.json', JSON.stringify(docs, null, 2))
 			await createData(
 				'portaliq-glossary.json',
-				JSON.stringify((content.glossary && content.glossary.terms) || [], null, 2),
+				JSON.stringify((loaded.glossary && loaded.glossary.terms) || [], null, 2),
 			)
 
 			// The gaps travel WITH the build output, so the next person reading
 			// the site knows what the contract did not supply.
 			setGlobalData({
-				site: content.site,
-				sidebar: sidebarFrom(content.menus),
+				site: loaded.site,
+				sidebar: sidebarFrom(loaded.menus),
 				apiGaps: KNOWN_API_GAPS,
 			})
 
