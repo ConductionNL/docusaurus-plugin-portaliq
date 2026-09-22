@@ -38,7 +38,14 @@ test('the 404 content component carries the marker the client watches for', () =
 
 	const source = fs.readFileSync(component, 'utf8')
 	assert.match(source, /data-portaliq-status="404"/, 'the marker attribute and value must match what the client queries for')
-	assert.match(source, /@theme-original\/NotFound\/Content/, 'the original 404 must still render, or this plugin replaces every site\'s 404 with a blank page')
+	// @theme-init, not @theme-original: a plugin SHADOWS the component, and
+	// @theme-original resolves back to this same file. The build then dies on
+	// /404.html with "Maximum call stack size exceeded".
+	assert.match(source, /@theme-init\/NotFound\/Content/, 'the original 404 must still render, or this plugin replaces every site\'s 404 with a blank page')
+	// Narrowed to the IMPORT. A bare /@theme-original/ also matches the
+	// comment above it, which exists precisely to explain why not to use it,
+	// so the guard failed on the documentation rather than on the code.
+	assert.doesNotMatch(source, /from '@theme-original/, '@theme-original recurses from a plugin-provided theme')
 })
 
 test('the theme is offered even when traffic is switched off', () => {

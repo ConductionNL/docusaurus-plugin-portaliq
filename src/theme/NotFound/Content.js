@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Conduction B.V.
 
 import React from 'react'
-import Content from '@theme-original/NotFound/Content'
+import Content from '@theme-init/NotFound/Content'
 
 /**
  * The 404 page, with the marker that tells the traffic client this route
@@ -27,6 +27,13 @@ import Content from '@theme-original/NotFound/Content'
  * register and the rollup already aggregates them into its `notFound`
  * dimension, which is what turns junk traffic into a list of broken links
  * worth fixing. Dropping the events instead would have thrown that away.
+ *
+ * `@theme-init`, NOT `@theme-original`. `@theme-original` is for a component
+ * swizzled into a SITE's own src/theme. A plugin that ships a theme path is
+ * shadowing the component, and Docusaurus exposes the shadowed original as
+ * `@theme-init`. Importing `@theme-original` here resolves back to this same
+ * file: the build fails on /404.html with `RangeError: Maximum call stack
+ * size exceeded`, which names the symptom and nothing else.
  *
  * The path is deliberately NOT set as an attribute here. Doing so needs
  * `window` at render time, which differs between the server build and the
