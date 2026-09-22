@@ -3,7 +3,16 @@
  * SPDX-License-Identifier: EUPL-1.2
  */
 
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+
 import { ContentClient, PortaliqBuildError, redact } from './contentClient.js'
+
+/* This package is ESM ("type": "module"), so there is no __dirname to
+   resolve the theme directory against. Derive it from import.meta.url
+   instead; `getThemePath` must return an ABSOLUTE path or Docusaurus
+   resolves it against the consuming site and silently finds nothing. */
+const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url))
 
 /**
  * A Docusaurus plugin that builds a site from a Portaliq portal.
@@ -293,6 +302,24 @@ export default function pluginPortaliq(context, options = {}) {
 			return {
 				headTags: [trafficScriptTag({ baseUrl, appPath, portal })],
 			}
+		},
+
+		/**
+		 * Ship the theme components this plugin needs.
+		 *
+		 * Only one: a `NotFound/Content` that wraps the site's own 404 and
+		 * adds the marker the traffic client watches for. It renders the
+		 * original untouched, so a site keeps whatever 404 it had.
+		 *
+		 * Offered even when `traffic` is off. The marker is inert without the
+		 * client, and making the theme path conditional would mean a site
+		 * that turns measurement on later silently keeps counting its 404s as
+		 * page views until someone remembers why.
+		 *
+		 * @return {string} The directory holding the theme components.
+		 */
+		getThemePath() {
+			return path.join(MODULE_DIR, 'theme')
 		},
 	}
 }
