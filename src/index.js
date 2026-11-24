@@ -83,6 +83,30 @@ export function sidebarFrom(menus) {
 }
 
 /**
+ * Trim leading and/or trailing slashes in linear time.
+ *
+ * Not `/^\/+/` or `/\/+$/`: on a route from the portal those backtrack
+ * quadratically on a long run of slashes (CodeQL js/polynomial-redos).
+ *
+ * @param {string}  text     The text.
+ * @param {boolean} leading  Trim at the start.
+ * @param {boolean} trailing Trim at the end.
+ * @return {string} The trimmed text.
+ */
+export function trimSlashes(text, leading, trailing) {
+	let start = 0
+	let end = text.length
+	while (leading && start < end && text[start] === '/') {
+		start++
+	}
+	while (trailing && end > start && text[end - 1] === '/') {
+		end--
+	}
+
+	return text.slice(start, end)
+}
+
+/**
  * The document id for a portal route.
  *
  * `/` becomes `index`; everything else keeps its shape so a portal route and a
@@ -92,7 +116,7 @@ export function sidebarFrom(menus) {
  * @return {string} The doc id.
  */
 export function docIdFor(route) {
-	const path = String(route || '/').replace(/^\/+/, '').replace(/\/+$/, '')
+	const path = trimSlashes(String(route || '/'), true, true)
 	return path === '' ? 'index' : path
 }
 
@@ -185,8 +209,10 @@ export function docsFrom(pages) {
  * @return {string} The path, e.g. `/docs/glossary`.
  */
 export function routePath(base, route) {
-	const head = String(base || '/').replace(/\/+$/, '')
-	const tail = '/' + String(route || '').replace(/^\/+/, '')
+	// Linear trims rather than `/\/+$/`: that pattern backtracks
+	// quadratically on a long run of slashes.
+	const head = trimSlashes(String(base || '/'), false, true)
+	const tail = '/' + trimSlashes(String(route || ''), true, false)
 
 	return (head + tail) || '/'
 }

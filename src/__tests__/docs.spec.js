@@ -9,7 +9,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import plugin, { routePath } from '../index.js'
+import plugin, { docIdFor, routePath, trimSlashes } from '../index.js'
 import { docFileFor, docSource, MANIFEST_FILE, SIDEBAR_FILE, writeDocs } from '../docsWriter.js'
 
 const MARKDOWN = '# Title\n\n```js\nconst a = 1\n```\n\n| a | b |\n| - | - |\n| 1 | 2 |\n'
@@ -199,8 +199,21 @@ test('routePath joins a base URL and a route without doubling slashes', () => {
 	assert.equal(routePath('/', '/glossary'), '/glossary')
 	assert.equal(routePath('/docs/', 'glossary'), '/docs/glossary')
 	assert.equal(routePath(undefined, '/glossary'), '/glossary')
+	// A long run of slashes is trimmed in linear time.
+	const started = Date.now()
+	assert.equal(routePath('/' + '/'.repeat(200000) + 'x', '/'.repeat(200000) + 'g'), '/' + '/'.repeat(200000) + 'x/g')
+	assert.ok(Date.now() - started < 500)
 })
 
 test('docSource keeps front matter to title and slug', () => {
 	assert.equal(docSource({ title: 'A', route: '/a', markdown: 'x' }), '---\ntitle: "A"\nslug: "/a"\n---\n\nx')
+})
+
+test('docIdFor and trimSlashes trim long slash runs in linear time', () => {
+	const started = Date.now()
+	assert.equal(docIdFor('/'.repeat(200000) + 'a/b' + '/'.repeat(200000)), 'a/b')
+	assert.equal(docIdFor('/'.repeat(200000)), 'index')
+	assert.equal(trimSlashes('//a//', true, false), 'a//')
+	assert.equal(trimSlashes('//a//', false, true), '//a')
+	assert.ok(Date.now() - started < 500)
 })
