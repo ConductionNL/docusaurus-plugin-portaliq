@@ -3,7 +3,10 @@
  * SPDX-License-Identifier: EUPL-1.2
  */
 
+import { dirname, isAbsolute, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { ContentClient, PortaliqBuildError, redact } from './contentClient.js'
+import { writeDocs } from './docsWriter.js'
 
 /**
  * A Docusaurus plugin that builds a site from a Portaliq portal.
@@ -153,11 +156,50 @@ export function trafficScriptTag({ baseUrl, appPath, portal }) {
 }
 
 /**
+ * The docs a build emits, one per page, with the markdown unconverted.
+ *
+ * @param {Array} pages The page records.
+ * @return {Array} `{id, title, route, markdown}` per page.
+ */
+export function docsFrom(pages) {
+	return (pages || []).map((page) => ({
+		id: docIdFor(page.route),
+		title: page.title || '',
+		route: page.route || '/',
+		markdown: markdownFor(page),
+	}))
+}
+
+/**
+ * Join the site's base URL and a route.
+ *
+ * @param {string} base  The site's `baseUrl`, e.g. `/docs/`.
+ * @param {string} route The route, e.g. `/glossary`.
+ * @return {string} The path, e.g. `/docs/glossary`.
+ */
+export function routePath(base, route) {
+	const head = String(base || '/').replace(/\/+$/, '')
+	const tail = '/' + String(route || '').replace(/^\/+/, '')
+
+	return (head + tail) || '/'
+}
+
+/**
  * The plugin.
+ *
+ * WITH `docsDir` THE PLUGIN IS ASYNC: it fetches the portal and writes the
+ * pages as `.md` files into `docsDir` before any plugin loads its content, so
+ * Docusaurus's docs plugin reads them like hand-written docs. Docusaurus awaits
+ * a plugin constructor's promise before running any `loadContent`, which is
+ * the only point at which files on disk are certain to be seen. The fetch
+ * happens once; `loadContent` reuses it. Without `docsDir` it stays a plain
+ * function and the pages are published as data only, as before.
+ *
+ * @spec openspec/changes/docusaurus-plugin-portaliq/specs/docusaurus-plugin-portaliq/spec.md#requirement-the-plugin-must-build-a-site-from-the-public-api-alone
  *
  * @param {object} context The Docusaurus context.
  * @param {object} options The plugin options.
- * @return {object} The plugin instance.
+ * @return {object|Promise<object>} The plugin instance.
  */
 export default function pluginPortaliq(context, options = {}) {
 	const {
@@ -169,64 +211,87 @@ export default function pluginPortaliq(context, options = {}) {
 		snapshot = null,
 		traffic = true,
 		content = true,
+		docsDir = null,
+		glossaryRoute = '/glossary',
+		glossaryTitle = 'Glossary',
 		fetchImpl,
 	} = options
 
-	return {
+	/**
+	 * Fetch everything the site is built from.
+	 *
+	 * A SNAPSHOT IS NEVER A SILENT FALLBACK. It is used only when the
+	 * configuration explicitly enables it; otherwise an unreachable API fails
+	 * the build. A plugin that quietly serves yesterday's content when today's
+	 * is unavailable publishes a site nobody knows is stale.
+	 *
+	 * @return {Promise<object>} The loaded content.
+	 */
+	async function load() {
+		// A SITE THAT ONLY WANTS MEASURING MUST NOT DEPEND ON THE CONTENT
+		// API. `content: false` is for a site that writes its own pages and
+		// takes nothing from the portal but the traffic client. Without this
+		// branch such a site still fetches the whole content contract at build
+		// time and, because an unreachable API deliberately fails the build, a
+		// portal being down would stop a site publishing pages it does not
+		// even get from that portal.
+		//
+		// Returning the empty shape rather than skipping the hook keeps
+		// `contentLoaded` free of null checks: it renders no docs, an empty
+		// sidebar and no glossary, which is exactly right for a site that
+		// asked for none.
+		if (content === false) {
+			return { site: null, menus: [], pages: [], glossary: null }
+		}
+
+		const client = new ContentClient({ baseUrl, appPath, portal, token, fetchImpl })
+
+		try {
+			return await client.loadAll(expected)
+		} catch (error) {
+			if (snapshot && snapshot.enabled === true && snapshot.content) {
+				// Announced, never silent.
+				// eslint-disable-next-line no-console
+				console.warn(
+					redact(
+						`[portaliq] using the configured snapshot: ${error.message}`,
+						token,
+					),
+				)
+				return snapshot.content
+			}
+
+			throw error instanceof PortaliqBuildError
+				? error
+				: new PortaliqBuildError(redact(String(error && error.message), token))
+		}
+	}
+
+	let preloaded = null
+
+	const instance = {
 		name: 'docusaurus-plugin-portaliq',
 
 		/**
-		 * Fetch everything the site is built from.
+		 * The theme component of the glossary route, swizzlable by a site.
 		 *
-		 * A SNAPSHOT IS NEVER A SILENT FALLBACK. It is used only when the
-		 * configuration explicitly enables it; otherwise an unreachable API
-		 * fails the build. A plugin that quietly serves yesterday's content
-		 * when today's is unavailable publishes a site nobody knows is stale.
+		 * @return {string} The theme directory.
+		 */
+		getThemePath() {
+			return join(dirname(fileURLToPath(import.meta.url)), 'theme')
+		},
+
+		/**
+		 * Hand the plugin the content: fetched now, or already by the constructor.
 		 *
 		 * @return {Promise<object>} The loaded content.
 		 */
 		async loadContent() {
-			// A SITE THAT ONLY WANTS MEASURING MUST NOT DEPEND ON THE CONTENT
-			// API. `content: false` is for a site that writes its own pages and
-			// takes nothing from the portal but the traffic client. Without
-			// this branch such a site still fetches the whole content contract
-			// at build time and, because an unreachable API deliberately fails
-			// the build, a portal being down would stop a site publishing pages
-			// it does not even get from that portal.
-			//
-			// Returning the empty shape rather than skipping the hook keeps
-			// `contentLoaded` free of null checks: it renders no docs, an empty
-			// sidebar and no glossary, which is exactly right for a site that
-			// asked for none.
-			if (content === false) {
-				return { site: null, menus: [], pages: [], glossary: null }
-			}
-
-			const client = new ContentClient({ baseUrl, appPath, portal, token, fetchImpl })
-
-			try {
-				return await client.loadAll(expected)
-			} catch (error) {
-				if (snapshot && snapshot.enabled === true && snapshot.content) {
-					// Announced, never silent.
-					// eslint-disable-next-line no-console
-					console.warn(
-						redact(
-							`[portaliq] using the configured snapshot: ${error.message}`,
-							token,
-						),
-					)
-					return snapshot.content
-				}
-
-				throw error instanceof PortaliqBuildError
-					? error
-					: new PortaliqBuildError(redact(String(error && error.message), token))
-			}
+			return preloaded || load()
 		},
 
 		/**
-		 * Hand the content to Docusaurus as docs, a sidebar and a glossary.
+		 * Hand the content to Docusaurus as docs, a sidebar and a glossary route.
 		 *
 		 * @param {object} args           The hook arguments.
 		 * @param {object} args.content   What `loadContent` returned.
@@ -234,7 +299,7 @@ export default function pluginPortaliq(context, options = {}) {
 		 * @return {Promise<void>} Resolves when the data is written.
 		 */
 		async contentLoaded({ content: loaded, actions }) {
-			const { createData, setGlobalData } = actions
+			const { createData, setGlobalData, addRoute } = actions
 
 			// Renamed from `content` because the plugin option of that name is
 			// in scope here; the hook argument shadowed it, so reading the
@@ -247,17 +312,29 @@ export default function pluginPortaliq(context, options = {}) {
 				return
 			}
 
-			const docs = (loaded.pages || []).map((page) => ({
-				id: docIdFor(page.route),
-				title: page.title || '',
-				markdown: markdownFor(page),
-			}))
+			const docs = docsFrom(loaded.pages).map(({ id, title, markdown }) => ({ id, title, markdown }))
 
 			await createData('portaliq-docs.json', JSON.stringify(docs, null, 2))
-			await createData(
+			const glossaryPath = await createData(
 				'portaliq-glossary.json',
 				JSON.stringify((loaded.glossary && loaded.glossary.terms) || [], null, 2),
 			)
+
+			// The glossary gets a ROUTE, not only data: the portal shows its
+			// glossary as a page, so a site built from the contract must too.
+			// `glossaryRoute: false` leaves the route to the site.
+			if (glossaryRoute !== false && typeof addRoute === 'function') {
+				const titlePath = await createData(
+					'portaliq-glossary-title.json',
+					JSON.stringify(String(glossaryTitle), null, 2),
+				)
+				addRoute({
+					path: routePath(context && context.baseUrl, glossaryRoute),
+					component: '@theme/PortaliqGlossary',
+					modules: { terms: glossaryPath, title: titlePath },
+					exact: true,
+				})
+			}
 
 			// The gaps travel WITH the build output, so the next person reading
 			// the site knows what the contract did not supply.
@@ -295,6 +372,20 @@ export default function pluginPortaliq(context, options = {}) {
 			}
 		},
 	}
+
+	if (!docsDir || content === false) {
+		return instance
+	}
+
+	const siteDir = (context && context.siteDir) || process.cwd()
+	const target = isAbsolute(docsDir) ? docsDir : resolve(siteDir, docsDir)
+
+	return (async () => {
+		preloaded = await load()
+		await writeDocs(target, { docs: docsFrom(preloaded.pages), sidebar: sidebarFrom(preloaded.menus) })
+
+		return instance
+	})()
 }
 
 export { KNOWN_API_GAPS }
