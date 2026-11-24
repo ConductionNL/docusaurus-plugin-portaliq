@@ -84,6 +84,14 @@ test('a two-level menu becomes a sidebar category', () => {
 		sidebar[1].items.map((i) => i.id),
 		['diensten/verhuizen', 'diensten/afval'],
 	)
+	// The category's own route stays reachable from the sidebar.
+	assert.deepEqual(sidebar[1].link, { type: 'doc', id: 'diensten' })
+})
+
+test('a category without a route of its own carries no link', () => {
+	const sidebar = sidebarFrom([{ items: [{ name: 'Group', items: [{ name: 'A', link: '/a' }] }] }])
+
+	assert.equal('link' in sidebar[0], false)
 })
 
 test('the root route becomes the index document', () => {

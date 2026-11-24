@@ -40,10 +40,33 @@ export default {
       expected: { menus: 1, pages: 10, glossary: 0 },
       // A snapshot is NEVER a silent fallback — it is used only when enabled.
       snapshot: { enabled: false, content: null },
+      // Write the pages as Docusaurus docs here, so the docs plugin renders them.
+      docsDir: 'docs',
+      glossaryTitle: 'Begrippen',
     }],
   ],
 }
 ```
+
+```js
+// sidebars.js — the menu, as the plugin wrote it
+const portaliq = require('./docs/_portaliq-sidebar.json')
+module.exports = { portaliq }
+```
+
+With `docsDir` the plugin fetches the portal **when Docusaurus constructs it**,
+before any plugin loads its content, and writes one `.md` file per page into
+that directory: front matter (`title`, and the portal route as `slug`), then the
+page's markdown exactly as the contract carries it. Docusaurus's docs plugin
+then reads them like hand-written docs. The sidebar goes to
+`_portaliq-sidebar.json` in the same directory.
+
+The directory may hold docs of your own. The plugin records what it wrote in
+`_portaliq-manifest.json` and, on the next build, removes only those of its own
+files the portal no longer serves, so a page deleted in the portal is not
+published again. A route that would write outside `docsDir` (`..`, an empty
+segment, a backslash, or a leading `_`, which Docusaurus would skip) fails the
+build.
 
 ### Options
 
@@ -56,6 +79,9 @@ export default {
 | `expected` | Minimum counts per resource. A shortfall fails the build **stating both numbers**. |
 | `snapshot` | `{enabled, content}`. Only used when `enabled` is `true`, and it announces itself when it is. |
 | `traffic` | Load the portal's traffic client. Defaults to `true`; `false` emits no tag at all. |
+| `docsDir` | Directory (relative to the site) to write the pages into as docs. Without it, pages are published as data only (`portaliq-docs.json`). |
+| `glossaryRoute` | Route of the glossary page. Defaults to `/glossary`; `false` adds no route. |
+| `glossaryTitle` | Title of the glossary page. Defaults to `Glossary`. |
 
 ## Measurement
 
@@ -108,12 +134,16 @@ is the portal's contract, documented at
 
 ## What a build does
 
-- **menus → sidebar.** Two-level nesting becomes a Docusaurus category. Deeper
-  trees are not flattened silently.
-- **pages → docs.** Markdown reaches Docusaurus's own MDX pipeline
-  **unconverted** — running it through a second converter first is how a code
-  fence or a table arrives broken.
-- **glossary → data.** Published as `portaliq-glossary.json`.
+- **menus → sidebar.** Two-level nesting becomes a Docusaurus category; a menu
+  item with children and a route of its own keeps that page as the category's
+  link. Deeper trees are not flattened silently.
+- **pages → docs.** With `docsDir`, markdown reaches Docusaurus's own MDX
+  pipeline **unconverted** — running it through a second converter first is how
+  a code fence or a table arrives broken. The pages are also published as data
+  (`portaliq-docs.json`).
+- **glossary → a route.** `/glossary` (under the site's `baseUrl`) lists the
+  terms, with an anchor per term. The component is `@theme/PortaliqGlossary`;
+  swizzle it to restyle. The terms are also published as `portaliq-glossary.json`.
 
 ## Why builds fail loudly
 

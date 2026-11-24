@@ -60,9 +60,16 @@ export function sidebarFrom(menus) {
 				continue
 			}
 
+			// A menu item with children AND its own route keeps that route as
+			// the category's page: otherwise the page is built but no link in
+			// the sidebar leads to it.
+			const category = { type: 'category', label: item.name }
+			if (String(item.link || '').startsWith('/')) {
+				category.link = { type: 'doc', id: docIdFor(item.link) }
+			}
+
 			sidebar.push({
-				type: 'category',
-				label: item.name,
+				...category,
 				items: children.map((child) => ({
 					type: 'doc',
 					id: docIdFor(child.link),
